@@ -23,4 +23,4 @@ jobs:
           version: latest
 
       - name: Deploy Edge Functions
-        run: supabase functions deploy make-server-dd0ac201 --project-ref $SUPABASE_PROJECT_REF --use-api
+        run: supabase functions deploy make-server-dd0ac201 --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --use-api

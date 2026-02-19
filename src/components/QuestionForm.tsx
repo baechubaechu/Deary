@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, Send } from "lucide-react";
+import { Mic, MicOff, Send, SkipForward, Volume2, VolumeX, Square } from "lucide-react";
 import type { DiaryAnswers, DiaryEntry, Language } from "../App";
 import { apiBaseUrl, publicAnonKey } from "../utils/supabase/info";
+import { useAuth } from "../contexts/AuthContext";
+import { useTTS } from "../hooks/useTTS";
 
 interface QuestionFormProps {
   onDiaryGenerated: (diary: DiaryEntry) => void;
@@ -15,17 +17,6 @@ interface Message {
 }
 
 let initialFetchPending = false;
-
-function getUserId(): string {
-  let userId = localStorage.getItem("deary_user_id");
-  if (!userId) {
-    userId =
-      (window.crypto?.randomUUID && window.crypto.randomUUID()) ||
-      `user_${Math.random().toString(36).slice(2, 9)}_${Date.now()}`;
-    localStorage.setItem("deary_user_id", userId);
-  }
-  return userId;
-}
 
 export function QuestionForm({
   onDiaryGenerated,
@@ -45,10 +36,13 @@ export function QuestionForm({
   const [micError, setMicError] = useState<string>("");
   const [speechRecognitionAvailable, setSpeechRecognitionAvailable] =
     useState(false);
-  const [userId] = useState(getUserId());
+  const [isSkipping, setIsSkipping] = useState(false);
+  const { userId } = useAuth();
+  const { speak, stop, isSpeaking, isEnabled, toggleEnabled } = useTTS(language);
 
   const recognitionRef = useRef<{ start(): void; stop(): void; lang: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastSpokenIndexRef = useRef(-1);
 
   const t = {
     ko: {
@@ -68,6 +62,11 @@ export function QuestionForm({
       micError: "음성 인식 오류",
       micStartError: "음성 인식을 시작할 수 없습니다.",
       skipPhrases: ["넘어가", "패스", "다음", "스킵", "건너뛰", "그냥 넘어", "다음 질문"],
+      skipQuestion: "질문 스킵하기",
+      generatingQuestion: "질문을 생성중입니다...",
+      ttsOn: "음성 읽기 켜기",
+      ttsOff: "음성 읽기 끄기",
+      ttsStop: "읽기 중지",
       fallbackFirst: "오늘은 어떤 하루였나요?",
       fallbackNext: "그 외에 더 말씀하고 싶은 이야기가 있나요?",
       summaryPrefix: "알겠어요!",
@@ -90,6 +89,11 @@ export function QuestionForm({
       micError: "Speech recognition error",
       micStartError: "Could not start voice recognition.",
       skipPhrases: ["skip", "next", "pass", "move on"],
+      skipQuestion: "Skip question",
+      generatingQuestion: "Generating question...",
+      ttsOn: "Enable voice",
+      ttsOff: "Disable voice",
+      ttsStop: "Stop reading",
       fallbackFirst: "How was your day today?",
       fallbackNext: "Is there anything else you'd like to share?",
       summaryPrefix: "Got it!",
@@ -167,6 +171,26 @@ export function QuestionForm({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // TTS: AI 질문/추가질문이 추가되면 음성으로 읽기
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.type !== "question" && last.type !== "followup") return;
+    if (lastSpokenIndexRef.current >= messages.length - 1) return;
+
+    lastSpokenIndexRef.current = messages.length - 1;
+
+    // 요약 메시지("알겠어요!" 등)는 읽지 않음
+    if (last.text.startsWith(text.summaryPrefix)) return;
+    // 생성 중 메시지는 짧게 읽기
+    if (last.text.includes("...") && last.text.includes("✨")) {
+      speak(language === "ko" ? "일기를 작성하고 있어요" : "Writing your diary");
+      return;
+    }
+
+    speak(last.text);
+  }, [messages, speak, language, text.summaryPrefix]);
+
   const loadUserProfile = async () => {
     try {
       await fetch(`${baseUrl}/get-profile/${userId}`, {
@@ -181,7 +205,7 @@ export function QuestionForm({
     }
   };
 
-  const fetchNextQuestion = async (overrideCount?: number) => {
+  const fetchNextQuestion = async (overrideCount?: number, skippedQuestion?: string) => {
     const count = overrideCount ?? questionCount;
     try {
       const response = await fetch(`${baseUrl}/next-question`, {
@@ -195,6 +219,7 @@ export function QuestionForm({
           userId,
           questionCount: count,
           language,
+          ...(skippedQuestion && { skippedQuestion }),
         }),
       });
 
@@ -459,6 +484,30 @@ export function QuestionForm({
     }
   };
 
+  const handleSkipQuestion = async () => {
+    if (isProcessing || isGenerating || isSkipping) return;
+    const lastMsg = messages[messages.length - 1];
+    const skippedText = lastMsg?.type === "question" || lastMsg?.type === "followup" ? lastMsg.text : undefined;
+    setIsSkipping(true);
+    setWaitingForFollowup(false);
+    setCurrentQuestionId("");
+    try {
+      await updateUserProfile();
+      setQuestionCount((prev) => prev + 1);
+      await fetchNextQuestion(questionCount + 1, skippedText);
+    } finally {
+      setIsSkipping(false);
+    }
+  };
+
+  const canSkipQuestion =
+    !isGenerating &&
+    !isProcessing &&
+    !isSkipping &&
+    messages.length > 0 &&
+    (messages[messages.length - 1]?.type === "question" ||
+      messages[messages.length - 1]?.type === "followup");
+
   const addSummaryAndNextQuestion = async () => {
     const latestAnswers = Object.values(answers).slice(-2).join(" ");
     const summary =
@@ -484,7 +533,7 @@ export function QuestionForm({
 
   if (!baseUrl) {
     return (
-      <div className="bg-white rounded-2xl shadow-xl p-6">
+      <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-xl p-6">
         <p className="text-sm text-red-500">
           {language === "en"
             ? "Supabase configuration is missing. Please set VITE_SUPABASE_PROJECT_ID and VITE_SUPABASE_ANON_KEY."
@@ -495,7 +544,7 @@ export function QuestionForm({
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl flex flex-col h-[700px]">
+    <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-xl flex flex-col h-[700px] border border-transparent dark:border-stone-700">
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {messages.map((message, index) => (
           <div
@@ -509,12 +558,12 @@ export function QuestionForm({
                 message.type === "answer"
                   ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white"
                   : message.type === "followup"
-                    ? "bg-blue-50 text-blue-900 border-2 border-blue-200"
-                    : "bg-gray-100 text-gray-800"
+                    ? "bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200 border-2 border-blue-200 dark:border-blue-700"
+                    : "bg-gray-100 dark:bg-stone-700 text-gray-800 dark:text-gray-200"
               }`}
             >
               {message.type === "followup" && (
-                <div className="text-xs font-semibold mb-1 text-blue-600">
+                <div className="text-xs font-semibold mb-1 text-blue-600 dark:text-blue-400">
                   {text.followupLabel}
                 </div>
               )}
@@ -522,11 +571,76 @@ export function QuestionForm({
             </div>
           </div>
         ))}
+        {isSkipping && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] rounded-2xl px-5 py-3 bg-gray-100 dark:bg-stone-700 text-gray-600 dark:text-gray-400 animate-pulse">
+              <p>{text.generatingQuestion}</p>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       {!isGenerating && (
-        <div className="border-t border-gray-200 p-4">
+        <div className="border-t border-gray-200 dark:border-stone-700 p-4">
+          <div className="flex justify-between items-center mb-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleEnabled}
+                type="button"
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  isEnabled
+                    ? "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20"
+                    : "text-gray-500 dark:text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-gray-100 dark:hover:bg-stone-700"
+                }`}
+                title={isEnabled ? text.ttsOff : text.ttsOn}
+              >
+                {isEnabled ? (
+                  <Volume2 className="w-4 h-4" />
+                ) : (
+                  <VolumeX className="w-4 h-4" />
+                )}
+                <span className="text-xs">
+                  {isEnabled ? (language === "ko" ? "음성 켜짐" : "Voice on") : (language === "ko" ? "음성 꺼짐" : "Voice off")}
+                </span>
+              </button>
+              {isSpeaking && (
+                <button
+                  onClick={stop}
+                  type="button"
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                  title={text.ttsStop}
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  {text.ttsStop}
+                </button>
+              )}
+            </div>
+            {canSkipQuestion && (
+              <button
+                onClick={handleSkipQuestion}
+                disabled={isSkipping}
+                type="button"
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  isSkipping
+                    ? "text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-60"
+                    : "text-gray-500 dark:text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-gray-100 dark:hover:bg-stone-700"
+                }`}
+              >
+                {isSkipping ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                    {text.generatingQuestion}
+                  </>
+                ) : (
+                  <>
+                    <SkipForward className="w-4 h-4" />
+                    {text.skipQuestion}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
           <div className="flex gap-2 items-end">
             <div className="flex-1">
               <textarea
@@ -537,7 +651,7 @@ export function QuestionForm({
                   isListening ? text.listening : text.placeholder
                 }
                 rows={2}
-                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"
+                className="w-full px-4 py-3 border border-gray-200 dark:border-stone-600 rounded-lg bg-white dark:bg-stone-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"
                 disabled={isProcessing || isListening}
               />
             </div>
@@ -548,7 +662,7 @@ export function QuestionForm({
               className={`p-3 rounded-lg transition-all ${
                 isListening
                   ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
-                  : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  : "bg-gray-100 dark:bg-stone-700 hover:bg-gray-200 dark:hover:bg-stone-600 text-gray-700 dark:text-gray-300"
               }`}
               title={isListening ? text.stopRecording : text.voiceInput}
             >
@@ -574,7 +688,7 @@ export function QuestionForm({
           </div>
 
           {!speechRecognitionAvailable && (
-            <p className="text-xs text-gray-500 mt-2 text-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
               {text.micChromeOnly}
             </p>
           )}

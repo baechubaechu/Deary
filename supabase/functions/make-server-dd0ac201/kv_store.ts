@@ -43,3 +43,16 @@ export const getByPrefix = async (prefix: string): Promise<unknown[]> => {
   if (error) throw new Error(error.message);
   return (data ?? []).map((d) => d.value);
 };
+
+/** key, value 쌍 반환 (구 형식 복구용) */
+export const getByPrefixWithKeys = async (
+  prefix: string
+): Promise<{ key: string; value: unknown }[]> => {
+  const supabase = client();
+  const { data, error } = await supabase
+    .from("kv_store_dd0ac201")
+    .select("key, value")
+    .like("key", prefix + "%");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((d) => ({ key: d.key, value: d.value }));
+};

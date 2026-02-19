@@ -105,8 +105,8 @@ export function ApiStatus({ onClose, language = "ko" }: ApiStatusProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
-        <h3 className="text-xl font-semibold text-gray-800 mb-4">
+      <div className="bg-white dark:bg-stone-800 rounded-2xl shadow-xl p-6 max-w-md w-full border border-transparent dark:border-stone-700">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4">
           {text.title}
         </h3>
 
@@ -126,7 +126,7 @@ export function ApiStatus({ onClose, language = "ko" }: ApiStatusProps) {
         {testStatus.testing && (
           <div className="text-center py-8">
             <Loader2 className="w-12 h-12 text-amber-500 animate-spin mx-auto mb-3" />
-            <p className="text-gray-600">
+            <p className="text-gray-600 dark:text-gray-400">
               {language === "ko" ? "테스트 중..." : "Testing..."}
             </p>
           </div>
@@ -134,25 +134,25 @@ export function ApiStatus({ onClose, language = "ko" }: ApiStatusProps) {
 
         {!testStatus.testing && testStatus.message && (
           <div className="space-y-4">
-            <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-stone-700/50 rounded-lg">
               {testStatus.success ? (
                 <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" />
               ) : (
                 <XCircle className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" />
               )}
               <div className="flex-1">
-                <p className="font-medium text-gray-800 whitespace-pre-wrap">
+                <p className="font-medium text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
                   {testStatus.message}
                 </p>
               </div>
             </div>
 
             {!testStatus.success && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
-                <p className="font-medium text-blue-900 mb-2">
+              <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-4 text-sm">
+                <p className="font-medium text-blue-900 dark:text-blue-200 mb-2">
                   {text.apiKeyTitle}
                 </p>
-                <ol className="list-decimal list-inside text-blue-800 space-y-1">
+                <ol className="list-decimal list-inside text-blue-800 dark:text-blue-300 space-y-1">
                   <li>{text.step1}</li>
                   <li>{text.step2}</li>
                   <li>{text.step3}</li>
@@ -164,7 +164,7 @@ export function ApiStatus({ onClose, language = "ko" }: ApiStatusProps) {
             <div className="flex gap-3">
               <button
                 onClick={testConnection}
-                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                className="flex-1 bg-gray-100 dark:bg-stone-700 text-gray-700 dark:text-gray-300 font-semibold py-2 px-4 rounded-lg hover:bg-gray-200 dark:hover:bg-stone-600 transition-all flex items-center justify-center gap-2"
               >
                 <RefreshCw className="w-4 h-4" />
                 {text.retry}

@@ -5,6 +5,9 @@ import * as kv from "./kv_store.ts";
 import * as ai from "./ai.ts";
 
 const app = new Hono();
+const P = "/make-server-dd0ac201";
+// Supabase may pass /P/xxx or /xxx - register both
+const both = (path: string) => [path, `${P}${path}`] as const;
 
 app.use("*", logger(console.log));
 app.use(
@@ -18,9 +21,14 @@ app.use(
   })
 );
 
-app.get("/make-server-dd0ac201/health", (c) => c.json({ status: "ok" }));
+for (const p of both("/health")) app.get(p, (c) => c.json({ status: "ok" }));
 
-app.get("/make-server-dd0ac201/test-gemini", async (c) => {
+// 디버그: 실제 요청 경로 확인용 (배포 후 /debug 호출해보세요)
+for (const p of ["/debug", `${P}/debug`])
+  app.get(p, (c) => c.json({ path: new URL(c.req.url).pathname, url: c.req.url }));
+
+for (const p of both("/test-gemini"))
+  app.get(p, async (c) => {
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   if (!geminiKey)
     return c.json({ success: false, error: "GEMINI_API_KEY not configured" }, 400);
@@ -43,40 +51,74 @@ app.get("/make-server-dd0ac201/test-gemini", async (c) => {
   }
 });
 
-app.get("/make-server-dd0ac201/diaries", async (c) => {
+const getDiaries = async (c: { req: { query: (k: string) => string }; json: (body: unknown, status?: number) => unknown }) => {
   try {
-    const diaries = await kv.getByPrefix("diary:");
+    const userId = c.req.query("userId");
+    if (!userId) return c.json({ error: "Missing userId" }, 400);
+    const diaries = await kv.getByPrefix(`diary:${userId}:`);
     return c.json({ diaries });
   } catch (error) {
     console.error("Error fetching diaries:", error);
     return c.json({ error: "Failed to fetch diaries" }, 500);
   }
-});
+};
+for (const p of both("/diaries")) app.get(p, getDiaries);
 
-app.post("/make-server-dd0ac201/diaries", async (c) => {
+// 구 형식(diary:123, diary:userId: 등) 일기를 현재 user.id로 복구
+const recoverDiaries = async (c: { req: { query: (k: string) => string }; json: (body: unknown, status?: number) => unknown }) => {
   try {
-    const { diary } = await c.req.json();
+    const userId = c.req.query("userId");
+    if (!userId) return c.json({ error: "Missing userId" }, 400);
+    const all = await kv.getByPrefixWithKeys("diary:");
+    const myPrefix = `diary:${userId}:`;
+    let migrated = 0;
+    for (const { key, value } of all) {
+      if (key.startsWith(myPrefix)) continue; // 이미 현재 사용자 소유
+      const diary = value as { id?: string; date?: string; content?: string; answers?: unknown; timestamp?: number };
+      if (!diary || typeof diary !== "object") continue;
+      const diaryId = diary.id ?? key.replace(/^diary:/, "").split(":")[0] ?? key;
+      const toSave = { ...diary, id: diaryId };
+      await kv.set(`diary:${userId}:${diaryId}`, toSave);
+      await kv.del(key);
+      migrated++;
+    }
+    return c.json({ migrated, total: all.length });
+  } catch (error) {
+    console.error("Recover diaries error:", error);
+    return c.json({ error: "Failed to recover diaries" }, 500);
+  }
+};
+for (const p of both("/diaries-recover")) app.post(p, recoverDiaries);
+
+const postDiaries = async (c: { req: { json: () => Promise<unknown> }; json: (body: unknown, status?: number) => unknown }) => {
+  try {
+    const { diary, userId } = (await c.req.json()) as { diary?: { id?: string }; userId?: string };
     if (!diary?.id) return c.json({ error: "Invalid diary data" }, 400);
-    await kv.set(`diary:${diary.id}`, diary);
+    if (!userId) return c.json({ error: "Missing userId" }, 400);
+    await kv.set(`diary:${userId}:${diary.id}`, diary);
     return c.json({ success: true });
   } catch (error) {
     console.error("Error saving diary:", error);
     return c.json({ error: "Failed to save diary" }, 500);
   }
-});
+};
+for (const p of both("/diaries")) app.post(p, postDiaries);
 
-app.delete("/make-server-dd0ac201/diaries/:id", async (c) => {
-  try {
-    const id = c.req.param("id");
-    await kv.del(`diary:${id}`);
-    return c.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting diary:", error);
-    return c.json({ error: "Failed to delete diary" }, 500);
-  }
-});
+for (const p of both("/diaries/:id"))
+  app.delete(p, async (c) => {
+    try {
+      const id = c.req.param("id");
+      const userId = c.req.query("userId");
+      if (!userId) return c.json({ error: "Missing userId" }, 400);
+      await kv.del(`diary:${userId}:${id}`);
+      return c.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting diary:", error);
+      return c.json({ error: "Failed to delete diary" }, 500);
+    }
+  });
 
-app.post("/make-server-dd0ac201/analyze-answer", async (c) => {
+app.post(`${P}/analyze-answer`, async (c) => {
   try {
     const { question, answer, allAnswers, language } = await c.req.json();
     if (!question || !answer) return c.json({ error: "Missing required fields" }, 400);
@@ -94,7 +136,7 @@ app.post("/make-server-dd0ac201/analyze-answer", async (c) => {
   }
 });
 
-app.post("/make-server-dd0ac201/generate-diary", async (c) => {
+app.post(`${P}/generate-diary`, async (c) => {
   try {
     const { answers, language } = await c.req.json();
     if (!answers) return c.json({ error: "Missing answers" }, 400);
@@ -107,7 +149,7 @@ app.post("/make-server-dd0ac201/generate-diary", async (c) => {
   }
 });
 
-app.post("/make-server-dd0ac201/review-answers", async (c) => {
+app.post(`${P}/review-answers`, async (c) => {
   try {
     const { answers, language } = await c.req.json();
     if (!answers) return c.json({ error: "Missing answers" }, 400);
@@ -120,9 +162,9 @@ app.post("/make-server-dd0ac201/review-answers", async (c) => {
   }
 });
 
-app.post("/make-server-dd0ac201/next-question", async (c) => {
+app.post(`${P}/next-question`, async (c) => {
   try {
-    const { answers, userId, questionCount, language } = await c.req.json();
+    const { answers, userId, questionCount, language, skippedQuestion } = await c.req.json();
     let userProfile: Record<string, unknown> = {};
     if (userId) {
       const profileData = await kv.get(`user_profile:${userId}`);
@@ -133,7 +175,8 @@ app.post("/make-server-dd0ac201/next-question", async (c) => {
       answers || {},
       userProfile,
       questionCount || 0,
-      lang
+      lang,
+      skippedQuestion || undefined
     );
     return c.json(result);
   } catch (error) {
@@ -142,7 +185,7 @@ app.post("/make-server-dd0ac201/next-question", async (c) => {
   }
 });
 
-app.post("/make-server-dd0ac201/update-profile", async (c) => {
+app.post(`${P}/update-profile`, async (c) => {
   try {
     const { userId, answers, language } = await c.req.json();
     if (!userId) return c.json({ error: "Missing userId" }, 400);
@@ -163,7 +206,62 @@ app.post("/make-server-dd0ac201/update-profile", async (c) => {
   }
 });
 
-app.get("/make-server-dd0ac201/get-profile/:userId", async (c) => {
+app.post(`${P}/tts`, async (c) => {
+  const apiKey = Deno.env.get("GOOGLE_TTS_API_KEY");
+  if (!apiKey) {
+    return c.json({ error: "GOOGLE_TTS_API_KEY not configured" }, 501);
+  }
+  try {
+    const { text, language } = await c.req.json();
+    if (!text || typeof text !== "string") {
+      return c.json({ error: "Missing text" }, 400);
+    }
+    const langCode = language === "en" ? "en-US" : "ko-KR";
+    const voiceName = language === "en" ? "en-US-Wavenet-D" : "ko-KR-Wavenet-A";
+    const res = await fetch(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: { text: text.trim() },
+          voice: {
+            languageCode: langCode,
+            name: voiceName,
+          },
+          audioConfig: {
+            audioEncoding: "MP3",
+            speakingRate: 0.95,
+            pitch: 0,
+          },
+        }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("Google TTS error:", res.status, err);
+      return c.json({ error: `TTS failed: ${res.status}` }, 502);
+    }
+    const data = await res.json();
+    const b64 = data.audioContent;
+    if (!b64) {
+      return c.json({ error: "No audio in response" }, 502);
+    }
+    const b64clean = b64.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = Uint8Array.from(atob(b64clean), (c) => c.charCodeAt(0));
+    return new Response(binary, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Length": String(binary.length),
+      },
+    });
+  } catch (error) {
+    console.error("TTS error:", error);
+    return c.json({ error: "TTS failed" }, 500);
+  }
+});
+
+app.get(`${P}/get-profile/:userId`, async (c) => {
   try {
     const userId = c.req.param("userId");
     if (!userId) return c.json({ error: "Missing userId" }, 400);
