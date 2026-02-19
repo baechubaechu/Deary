@@ -3,11 +3,8 @@ import { QuestionForm } from "./components/QuestionForm";
 import { DiaryDisplay } from "./components/DiaryDisplay";
 import { DiaryList } from "./components/DiaryList";
 import { ApiStatus } from "./components/ApiStatus";
-import { BookOpen, Settings } from "lucide-react";
-import {
-  projectId,
-  publicAnonKey,
-} from "./utils/supabase/info";
+import { BookOpen, Settings, RefreshCw } from "lucide-react";
+import { apiBaseUrl, publicAnonKey } from "./utils/supabase/info";
 
 export interface DiaryAnswers {
   mood: string;
@@ -15,6 +12,8 @@ export interface DiaryAnswers {
   challenge: string;
   grateful: string;
   tomorrow: string;
+  /** 추가 답변 (q_5, q_6 등) - 최대 10개까지 확장 */
+  [key: string]: string;
 }
 
 export interface DiaryEntry {
@@ -25,6 +24,8 @@ export interface DiaryEntry {
   timestamp: number;
 }
 
+export type Language = "ko" | "en";
+
 export default function App() {
   const [currentDiary, setCurrentDiary] =
     useState<DiaryEntry | null>(null);
@@ -32,6 +33,16 @@ export default function App() {
   const [showForm, setShowForm] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [showApiStatus, setShowApiStatus] = useState(false);
+  const [language] = useState<Language>(() => {
+    const stored = window.localStorage.getItem("deary_language") as Language | null;
+    return stored === "en" || stored === "ko" ? stored : "ko";
+  });
+
+  const handleLanguageToggle = () => {
+    const next: Language = language === "ko" ? "en" : "ko";
+    window.localStorage.setItem("deary_language", next);
+    window.location.reload();
+  };
 
   // Load diaries on mount
   useEffect(() => {
@@ -39,15 +50,16 @@ export default function App() {
   }, []);
 
   const loadDiaries = async () => {
+    if (!apiBaseUrl) {
+      setIsLoading(false);
+      return;
+    }
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-dd0ac201/diaries`,
-        {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+      const response = await fetch(`${apiBaseUrl}/diaries`, {
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
         },
-      );
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -61,18 +73,19 @@ export default function App() {
   };
 
   const handleDiaryGenerated = async (diary: DiaryEntry) => {
+    if (!apiBaseUrl) {
+      console.error("Supabase not configured");
+      return;
+    }
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-dd0ac201/diaries`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-          body: JSON.stringify({ diary }),
+      const response = await fetch(`${apiBaseUrl}/diaries`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${publicAnonKey}`,
         },
-      );
+        body: JSON.stringify({ diary }),
+      });
 
       if (response.ok) {
         setCurrentDiary(diary);
@@ -94,17 +107,20 @@ export default function App() {
     setShowForm(false);
   };
 
+  const handleRefresh = () => {
+    setIsLoading(true);
+    loadDiaries();
+  };
+
   const handleDeleteDiary = async (diaryId: string) => {
+    if (!apiBaseUrl) return;
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-dd0ac201/diaries/${diaryId}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+      const response = await fetch(`${apiBaseUrl}/diaries/${diaryId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
         },
-      );
+      });
 
       if (response.ok) {
         if (currentDiary?.id === diaryId) {
@@ -122,24 +138,59 @@ export default function App() {
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Header */}
-        <header className="text-center mb-12">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <BookOpen className="w-10 h-10 text-amber-600" />
-            <h1 className="text-4xl font-bold text-amber-900">
-              AI 일기장
-            </h1>
-            <button
-              onClick={() => setShowApiStatus(true)}
-              className="ml-2 p-2 text-gray-400 hover:text-amber-600 transition-colors"
-              title="API 연결 상태 확인"
-            >
-              <Settings className="w-6 h-6" />
-            </button>
+        <header className="mb-12">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div className="flex items-center gap-3">
+              <BookOpen className="w-10 h-10 text-amber-600" />
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold text-amber-900">
+                  {language === "ko" ? "AI 일기장" : "AI Diary"}
+                </h1>
+                <p className="text-amber-700 text-sm md:text-base">
+                  {language === "ko"
+                    ? "몇 가지 질문에 답하면 AI가 당신만의 일기를 작성해드립니다"
+                    : "Answer a few questions and AI will write a diary just for you."}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefresh}
+                className="p-2 text-gray-400 hover:text-amber-600 transition-colors"
+                title={
+                  language === "ko"
+                    ? "새로고침"
+                    : "Refresh"
+                }
+              >
+                <RefreshCw
+                  className={`w-6 h-6 ${isLoading ? "animate-spin" : ""}`}
+                />
+              </button>
+              <button
+                onClick={handleLanguageToggle}
+                className="px-3 py-1.5 rounded-full border border-amber-200 bg-white/70 text-sm text-amber-800 hover:bg-amber-50 transition"
+                title={
+                  language === "ko"
+                    ? "Switch to English"
+                    : "한국어로 전환"
+                }
+              >
+                {language === "ko" ? "한국어 / EN" : "KO / English"}
+              </button>
+              <button
+                onClick={() => setShowApiStatus(true)}
+                className="p-2 text-gray-400 hover:text-amber-600 transition-colors"
+                title={
+                  language === "ko"
+                    ? "API 연결 상태 확인"
+                    : "Check API connection status"
+                }
+              >
+                <Settings className="w-6 h-6" />
+              </button>
+            </div>
           </div>
-          <p className="text-amber-700">
-            몇 가지 질문에 답하면 AI가 당신만의 일기를
-            작성해드립니다
-          </p>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -152,6 +203,7 @@ export default function App() {
               onWriteNew={handleWriteNew}
               onDeleteDiary={handleDeleteDiary}
               isLoading={isLoading}
+              language={language}
             />
           </div>
 
@@ -159,6 +211,7 @@ export default function App() {
           <div className="lg:col-span-2">
             {showForm ? (
               <QuestionForm
+                language={language}
                 onDiaryGenerated={handleDiaryGenerated}
               />
             ) : (
@@ -166,6 +219,7 @@ export default function App() {
                 <DiaryDisplay
                   diary={currentDiary}
                   onWriteNew={handleWriteNew}
+                  language={language}
                 />
               )
             )}
@@ -174,7 +228,10 @@ export default function App() {
 
         {/* API Status Modal */}
         {showApiStatus && (
-          <ApiStatus onClose={() => setShowApiStatus(false)} />
+          <ApiStatus
+            onClose={() => setShowApiStatus(false)}
+            language={language}
+          />
         )}
       </div>
     </div>

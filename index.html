@@ -4,7 +4,17 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI 일기장</title>
+    <meta name="description" content="AI Diary | AI 일기장 - Answer a few questions and AI will write your personal diary. 몇 가지 질문에 답하면 AI가 당신만의 일기를 작성해드립니다." />
+    <title>AI Diary | AI 일기장</title>
+    <script>
+      (function() {
+        var lang = localStorage.getItem('deary_language');
+        if (lang === 'en' || lang === 'ko') {
+          document.documentElement.lang = lang;
+          document.title = lang === 'en' ? 'AI Diary' : 'AI 일기장';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
