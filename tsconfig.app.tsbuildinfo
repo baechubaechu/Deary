@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/apistatus.tsx","./src/components/diarydisplay.tsx","./src/components/diarylist.tsx","./src/components/questionform.tsx","./src/utils/supabase/info.ts"],"version":"5.6.3"}
