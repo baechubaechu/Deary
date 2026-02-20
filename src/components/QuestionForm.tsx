@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, Send, SkipForward, Volume2, VolumeX, Square } from "lucide-react";
+import { Mic, MicOff, Send, SkipForward, Volume2, VolumeX, Square, FileEdit } from "lucide-react";
 import type { DiaryAnswers, DiaryEntry, Language } from "../App";
 import { apiBaseUrl, publicAnonKey } from "../utils/supabase/info";
 import { useAuth } from "../contexts/AuthContext";
@@ -38,7 +38,7 @@ export function QuestionForm({
     useState(false);
   const [isSkipping, setIsSkipping] = useState(false);
   const { userId } = useAuth();
-  const { speak, stop, isSpeaking, isEnabled, toggleEnabled } = useTTS(language);
+  const { speak, speakReadAgain, stop, isSpeaking, isEnabled, toggleEnabled, voice, setVoice, voiceOptions } = useTTS(language);
 
   const recognitionRef = useRef<{ start(): void; stop(): void; lang: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -52,7 +52,7 @@ export function QuestionForm({
       stopRecording: "녹음 중지",
       voiceInput: "음성 입력",
       send: "답변 전송",
-      generating: "AI가 일기를 작성하고 있어요... ✨",
+      generating: "AI가 일기를 작성하고 있어요.",
       micChromeOnly: "음성 인식 기능은 Chrome 브라우저에서만 지원됩니다",
       micBlocked:
         "마이크 사용이 차단되었습니다. 브라우저 주소창 옆 자물쇠 아이콘을 클릭하여 마이크 권한을 허용해주세요.",
@@ -63,13 +63,17 @@ export function QuestionForm({
       micStartError: "음성 인식을 시작할 수 없습니다.",
       skipPhrases: ["넘어가", "패스", "다음", "스킵", "건너뛰", "그냥 넘어", "다음 질문"],
       skipQuestion: "질문 스킵하기",
+      finishAndWrite: "여기까지 하고 일기 작성하기",
       generatingQuestion: "질문을 생성중입니다...",
       ttsOn: "음성 읽기 켜기",
       ttsOff: "음성 읽기 끄기",
       ttsStop: "읽기 중지",
-      fallbackFirst: "오늘은 어떤 하루였나요?",
-      fallbackNext: "그 외에 더 말씀하고 싶은 이야기가 있나요?",
+      voiceLabel: "목소리",
+      readAgain: "다시 읽기",
+      fallbackFirst: "오늘 아침에 제일 먼저 한 행동이 뭐였나요? 물 마시기? 아니면 휴대폰 확인?",
+      fallbackNext: "오늘 먹은 것 중에 제일 맛있었던 건 뭐였나요? 구체적으로 어떤 맛이었나요?",
       summaryPrefix: "알겠어요!",
+      summaryTransition: "알겠어요! 그럼 다음 질문이에요.",
       errorPrefix: "일기 생성 중 오류가 발생했습니다",
     },
     en: {
@@ -79,7 +83,7 @@ export function QuestionForm({
       stopRecording: "Stop recording",
       voiceInput: "Voice input",
       send: "Send",
-      generating: "AI is writing your diary... ✨",
+      generating: "AI is writing your diary.",
       micChromeOnly: "Voice recognition is only supported in Chrome",
       micBlocked:
         "Microphone access was denied. Please allow microphone permission in your browser.",
@@ -90,13 +94,17 @@ export function QuestionForm({
       micStartError: "Could not start voice recognition.",
       skipPhrases: ["skip", "next", "pass", "move on"],
       skipQuestion: "Skip question",
+      finishAndWrite: "Finish here and write diary",
       generatingQuestion: "Generating question...",
       ttsOn: "Enable voice",
       ttsOff: "Disable voice",
       ttsStop: "Stop reading",
-      fallbackFirst: "How was your day today?",
-      fallbackNext: "Is there anything else you'd like to share?",
+      voiceLabel: "Voice",
+      readAgain: "Read again",
+      fallbackFirst: "What was the very first thing you did this morning? Drink water? Or check your phone?",
+      fallbackNext: "What was the tastiest thing you ate today? I'm curious what it tasted like.",
       summaryPrefix: "Got it!",
+      summaryTransition: "Got it! Here's the next question.",
       errorPrefix: "An error occurred while generating your diary",
     },
   };
@@ -208,6 +216,16 @@ export function QuestionForm({
   const fetchNextQuestion = async (overrideCount?: number, skippedQuestion?: string) => {
     const count = overrideCount ?? questionCount;
     try {
+      const askedQuestions = messages
+        .filter(
+          (m) =>
+            (m.type === "question" || m.type === "followup") &&
+            !m.text.startsWith(text.summaryPrefix) &&
+            !m.text.includes("✨") &&
+            !m.text.startsWith(text.errorPrefix)
+        )
+        .map((m) => m.text);
+
       const response = await fetch(`${baseUrl}/next-question`, {
         method: "POST",
         headers: {
@@ -219,6 +237,7 @@ export function QuestionForm({
           userId,
           questionCount: count,
           language,
+          askedQuestions,
           ...(skippedQuestion && { skippedQuestion }),
         }),
       });
@@ -509,15 +528,9 @@ export function QuestionForm({
       messages[messages.length - 1]?.type === "followup");
 
   const addSummaryAndNextQuestion = async () => {
-    const latestAnswers = Object.values(answers).slice(-2).join(" ");
-    const summary =
-      latestAnswers.length > 60
-        ? `${text.summaryPrefix} ${latestAnswers.substring(0, 60)}...`
-        : `${text.summaryPrefix} ${latestAnswers}`;
-
     if (questionCount > 0) {
-      setMessages((prev) => [...prev, { type: "question", text: summary }]);
-      await new Promise((r) => setTimeout(r, 800));
+      setMessages((prev) => [...prev, { type: "question", text: text.summaryTransition }]);
+      await new Promise((r) => setTimeout(r, 600));
     }
 
     setQuestionCount((prev) => prev + 1);
@@ -567,7 +580,19 @@ export function QuestionForm({
                   {text.followupLabel}
                 </div>
               )}
-              <p className="whitespace-pre-wrap">{message.text}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="whitespace-pre-wrap flex-1 min-w-0">{message.text}</p>
+                {(message.type === "question" || message.type === "followup") && (
+                  <button
+                    type="button"
+                    onClick={() => speakReadAgain(message.text)}
+                    className="shrink-0 p-1.5 rounded-lg text-gray-500 hover:text-amber-600 dark:text-gray-400 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                    title={text.readAgain}
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -584,7 +609,7 @@ export function QuestionForm({
       {!isGenerating && (
         <div className="border-t border-gray-200 dark:border-stone-700 p-4">
           <div className="flex justify-between items-center mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={toggleEnabled}
                 type="button"
@@ -604,6 +629,20 @@ export function QuestionForm({
                   {isEnabled ? (language === "ko" ? "음성 켜짐" : "Voice on") : (language === "ko" ? "음성 꺼짐" : "Voice off")}
                 </span>
               </button>
+              {isEnabled && voiceOptions.length > 1 && (
+                <select
+                  value={voice}
+                  onChange={(e) => setVoice(e.target.value)}
+                  className="text-xs px-2 py-1.5 rounded-lg border border-gray-200 dark:border-stone-600 bg-white dark:bg-stone-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  title={text.voiceLabel}
+                >
+                  {voiceOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {isSpeaking && (
                 <button
                   onClick={stop}
@@ -638,6 +677,16 @@ export function QuestionForm({
                     {text.skipQuestion}
                   </>
                 )}
+              </button>
+            )}
+            {Object.keys(answers).length > 0 && !isGenerating && !isProcessing && (
+              <button
+                onClick={generateDiary}
+                type="button"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition-colors"
+              >
+                <FileEdit className="w-4 h-4" />
+                {text.finishAndWrite}
               </button>
             )}
           </div>

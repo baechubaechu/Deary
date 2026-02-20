@@ -9,6 +9,88 @@ function getLang(lang?: string): Language {
 }
 
 /**
+ * Deary 질문 테마 & 풀 - '다정한 에디터' 톤
+ * 말투: ~했군요, ~했는지 궁금해요, ~드셨어요? (청유형)
+ * 적당한 거리감, 지적인 호기심, 구체적인 질문
+ */
+const QUESTION_POOLS = {
+  ko: {
+    theme1_morning: [
+      "오늘 아침에 제일 먼저 하신 게 뭐예요? 물 마시기? 아니면 핸드폰 확인?",
+      "오늘 아침 출근(등교) 길에 평소와 다르게 눈에 띈 풍경이 있었는지 궁금해요.",
+      "집을 나설 때 공기가 어땠나요? 춥진 않았어요, 아니면 좀 더웠나요?",
+      "오늘 하루를 시작하면서 다짐하신 게 있나요?",
+      "오늘 아침 눈 뜨셨을 때 개운했나요, 아니면 더 자고 싶었나요?",
+    ],
+    theme2_highlight: [
+      "오늘 하루를 사진 한 장으로 남긴다면, 어떤 순간을 찍고 싶으세요?",
+      "오늘 가장 크게 웃었던 순간이 언제였는지 궁금해요. 뭐 때문에 그렇게 웃으셨어요?",
+      "예상치 못하게 당황스럽거나 놀라셨던 일이 있었나요?",
+      "오늘 들으신 노래나 영상 중에 기억에 남는 게 있나요?",
+      "오늘 스스로를 칭찬해주고 싶은 순간이 있다면 언제였나요?",
+    ],
+    theme3_food: [
+      "오늘 점심은 뭐 드셨어요? 맛있는 거 드셨으면 좋겠는데.",
+      "누구랑 같이 드셨어요? 밥 먹으면서 무슨 얘기 나누셨는지 궁금해요.",
+      "오늘 커피나 차 마셨나요? 카페 분위기는 어땠나요?",
+      "오늘 배고픈데 참으신 적 있나요, 아니면 너무 배부르게 드셨나요?",
+      "오늘 드신 음식 중에 '이건 또 먹고 싶다' 싶은 게 있었나요?",
+    ],
+    theme4_work: [
+      "오늘 해야 했던 일(과제)들은 계획대로 잘 끝내셨나요? 아니면 좀 미뤄지셨나요?",
+      "일하시다가(공부하시다가) 제일 답답하거나 막히셨던 순간이 언제였는지 궁금해요.",
+      "오늘 회의나 수업 시간에 기억에 남는 내용이나 발언이 있었나요?",
+      "오늘 에너지를 가장 많이 쓴 일이 뭐였나요?",
+      "집에 돌아오는 길에 일 생각은 잊으셨나요, 아니면 계속 떠오르셨나요?",
+    ],
+    theme5_relationships: [
+      "오늘 가장 말을 많이 나누신 분이 누구였나요?",
+      "오늘 누군가와 대화하시다가 인상 깊었던 문장이 있나요?",
+      "오늘 연락하고 싶었는데 못 하신 분이 있나요?",
+      "오늘 만나신 분들 중에 표정이 기억나는 얼굴이 있나요?",
+      "오늘 인간관계 때문에 조금이라도 신경 쓰이거나 속상한 일은 없었나요?",
+    ],
+  },
+  en: {
+    theme1_morning: [
+      "What was the very first thing you did this morning? Had some water, or checked your phone?",
+      "I'm curious—on your way to work or school this morning, did you notice anything different from usual?",
+      "How was the air when you left the house? A bit cold, or rather warm?",
+      "Did you make any resolutions when you started your day today?",
+      "When you woke up, did you feel refreshed, or like you could've slept more?",
+    ],
+    theme2_highlight: [
+      "If you could capture today in one photo, what moment would you take? I'm curious.",
+      "When did you laugh the hardest today? I'd love to hear what made you laugh like that.",
+      "Was there anything that caught you off guard or surprised you today?",
+      "Any song or video you heard or watched today that stuck with you?",
+      "If there's a moment today you'd want to pat yourself on the back for, when was it?",
+    ],
+    theme3_food: [
+      "What did you have for lunch today? I hope it was something good.",
+      "Who did you eat with? I'm curious what you talked about over the meal.",
+      "Did you have coffee or tea today? How was the café vibe?",
+      "Did you skip a meal when you were hungry, or eat a bit too much today?",
+      "Was there anything you ate today that you'd want to have again?",
+    ],
+    theme4_work: [
+      "Did you finish what you had to do (or homework) as planned today, or did you put some things off?",
+      "I'm curious—when was the most frustrating or stuck moment at work or studying today?",
+      "Was there anything memorable said in a meeting or class today?",
+      "What task used up most of your energy today?",
+      "On your way home, did you leave work behind, or did it keep running through your mind?",
+    ],
+    theme5_relationships: [
+      "Who did you talk to the most today?",
+      "Was there a sentence from a conversation today that stuck with you?",
+      "Was there anyone you wanted to reach out to but couldn't today?",
+      "Do you remember any particular face or expression from someone you met today?",
+      "Was there anything that bothered or upset you in your relationships today?",
+    ],
+  },
+};
+
+/**
  * [분석 함수] 사용자의 답변이 충분한지 검사합니다.
  */
 export async function analyzeAnswerForFollowup(
@@ -20,11 +102,18 @@ export async function analyzeAnswerForFollowup(
   if (!GEMINI_API_KEY) return { needsFollowup: false };
 
   const answerLength = answer.trim().length;
+  const answerLower = answer.trim().toLowerCase();
+  const dontKnowPhrases = language === "ko"
+    ? ["모르겠", "잘 모르겠", "말하기 어려", "기분은 잘 모르겠", "말 못하겠"]
+    : ["don't know", "not sure", "can't say", "hard to say", "don't remember"];
+  if (dontKnowPhrases.some((p) => answerLower.includes(p))) {
+    return { needsFollowup: false };
+  }
   if (answerLength < 10) {
     const msg =
       language === "en"
-        ? "I'd like to understand that moment better. What was going through your mind at that time?"
-        : "그 순간이 궁금하네요. 그때 어떤 생각이나 느낌이 들었나요?";
+        ? "That moment sounds interesting. What comes to mind when you think back to it?"
+        : "그때를 떠올려보면 어떤 게 가장 먼저 생각나시나요? 궁금해요.";
     return { needsFollowup: true, followupQuestion: msg };
   }
 
@@ -35,18 +124,20 @@ export async function analyzeAnswerForFollowup(
 
   const isEn = language === "en";
   const prompt = isEn
-    ? `You are a warm, professional counselor who helps the user reflect on their day. Your follow-up questions must be GENERATED FROM THE USER'S ACTUAL ANSWER—never from a template or predefined list.
+    ? `You are Deary's warm editor—curious, kind, with just the right distance. Your follow-up probes DEEPER into what the user just said with CONCRETE, SPECIFIC questions. Never generic ("How did you feel?", "Tell me more").
 
-[🚨 CRITICAL - Generate from answer, NOT from templates]
-- Your follow-up MUST reference something SPECIFIC the user just said (a person, place, activity, object, or feeling they mentioned)
-- The question should ONLY make sense for THIS exact answer—if it could apply to any answer, it's wrong
-- Example: User said "had lunch with a colleague" → Good: "How was the conversation with your colleague at lunch today?" | Bad: "What was the highlight of your day?" (generic)
-- Example: User said "stayed home" → Good: "What did you do at home today—any particular moment that stood out?" | Bad: "How did you feel?" (too generic)
-- NEVER recycle questions from a fixed list. Each question is freshly generated from the answer content.
+[TONE & MANNER - Warm Editor]
+- Voice: Kind and intellectually curious, like a magazine editor.
+- Don't over-empathize; show curiosity about concrete FACTS.
+- Use soft endings: "I'm curious...", "What was that like?", "Was it A, or rather B?"
+- BAD: "That must have been hard ㅠㅠ" → GOOD: "That sounds tough. What part was the trickiest?"
+- No excessive emojis or "lol". End sentences gently.
 
-[TONE - Consultant]
-- Warm, respectful, professional
-- Reference their words naturally: "That meeting you mentioned—what was the main takeaway?"
+[CRITICAL - Generate from answer]
+- Your follow-up MUST reference something SPECIFIC the user just said (person, place, activity, object)
+- Offer choices when natural: "Was it A? Or B?"
+- Example: User said "had lunch with a colleague" → Good: "What did you talk about over lunch? Anything memorable?" | Bad: "What was the highlight of your day?"
+- Example: User said "just had kimbap" → Good: "Kimbap comes in so many varieties. Tuna? Or the basic kind?" | Bad: "How did you feel?"
 
 [Today only!]
 - All questions about "today" only
@@ -60,35 +151,42 @@ Answer: "${answer}"
 
 [When to ask (needsFollowup: true)]
 - Answer under 50 chars or evasive
-- Only facts, no feelings—ask about the feeling around what they mentioned
+- Only facts, no feelings—ask a REFLECTIVE question that invites them to think about that moment (e.g. "What stood out to you about that?", "What comes to mind when you think back?"). NEVER ask directly "How did you feel?"
 - User mentioned a person/place/activity—ask about THAT specific thing
 - Pick ONE concrete element from their answer and ask a question that ONLY fits that
 
-[When to stop (needsFollowup: false)]
+[When to STOP (needsFollowup: false) - move to next main question]
+- User said they don't know / can't express: "I don't know", "not sure", "can't say", "모르겠어", "잘 모르겠는데", "말하기 어려운데", "기분은 잘 모르겠는데"
+- User already gave a feeling (tired, sleepy, etc.)—don't push for "more specific" feelings
 - Rich answer with feelings and details
-- Nothing more to ask without repeating
 
 [FORBIDDEN]
 - Generic questions that could apply to any answer
 - "Could you tell me more?", "Please elaborate"
+- Direct emotion questions: "How did you feel?", "How was your mood?", "What did you feel?", "What kind of mood?", "What specifically did you feel?"
 - Questions that ignore what the user actually said
 - Reusing the same question structure—each must be tailored to the answer
 
 Output ONLY this JSON:
 {"needsFollowup": true, "followupQuestion": "A question that references something SPECIFIC from the user's answer—generated for this answer only, not from a template"}`
 
-    : `너는 사용자의 하루를 함께 돌아보는 따뜻한 상담가야. 추가 질문은 반드시 사용자가 방금 한 답변 내용에서 뽑아서 만들어야 한다. 사전에 준비된 질문 목록에서 고르지 마라.
+    : `너는 Deary의 다정한 에디터야. 친절하고 지적인 잡지 에디터처럼 행동해. 추가 질문은 사용자가 방금 한 답변을 호기심을 가지고 구체적인 '사실'을 파는 질문이어야 해.
+
+[Tone & Manner - 다정한 에디터]
+- 말투: ~했군요, ~했는지 궁금해요, ~드셨어요? (청유형)
+- 호칭: '사용자님' 대신 생략하거나 '당신'
+- 공감만 하지 말고, 호기심을 가지고 구체적인 사실을 물어봐
+- 나쁨: "힘드셨겠어요 ㅠㅠ" → 좋음: "정말 고생 많으셨네요. 어떤 부분이 제일 까다로웠나요?"
+- 과도한 이모지, 'ㅋㅋ' 금지. 문장 끝을 부드럽게 맺어
+- 선택지 제시: "참치김밥? 아니면 기본?" / "혼자 드셨어요, 아니면 동료들이랑?"
+
+[예시 대화]
+User: "그냥 김밥 먹었어." → AI: "김밥이라도 종류가 많잖아요. 혹시 참치김밥? 아니면 기본?"
+User: "참치." → AI: "오, 든든했겠네요. 혼자 드셨어요, 아니면 동료들이랑?"
 
 [🚨 절대 규칙 - 답변에 맞춰 새로 생성]
-- 추가 질문은 사용자가 방금 말한 내용(사람, 장소, 일, 물건, 감정 등)을 반드시 직접 언급해야 함
-- 이 답변에만 통하는 질문이어야 함. 다른 답변에도 쓸 수 있는 일반적인 질문이면 안 됨
-- 예: "점심에 동료랑 밥 먹었어" → 좋음: "오늘 점심 때 동료분이랑 어떤 이야기 나눠보셨어요?" | 나쁨: "오늘 하루 어땠나요?" (너무 일반적)
-- 예: "집에 있었어" → 좋음: "집에 계시는 동안 오늘 뭘 하시면서 시간 보내셨어요?" | 나쁨: "기분이 어땠나요?" (답변과 연결 안 됨)
-- 고정된 질문 템플릿을 재활용하지 마. 매번 답변 내용을 분석해서 그에 맞는 질문을 새로 만든다.
-
-[🎯 말투 - 상담가]
-- 따뜻하고 존중하는 말투, "~세요" 체
-- 답변에 나온 말을 자연스럽게 받아서: "그 회의 말씀하셨는데, 오늘 그 회의에서 어떤 얘기가 나왔나요?"
+- 사용자가 방금 말한 내용(사람, 장소, 일, 물건)을 반드시 직접 언급
+- 이 답변에만 통하는 질문. "기분이 어땠나요?", "더 말해줘" 같은 추상적 질문 금지
 
 [오늘 일기만!]
 - 모든 질문은 "오늘"에 대해서만
@@ -102,17 +200,20 @@ ${contextText || "(아직 맥락 없음)"}
 
 [추가 질문 해야 할 때 (needsFollowup: true)]
 - 답변이 50자 미만, "몰라" "그냥" 같은 회피
-- 사실만 말하고 감정 없음 → 그 사실에 대한 감정 물어보기
+- 사실만 말하고 감정 없음 → 그 순간을 돌아보게 하는 질문 (예: "그때 어떤 게 가장 떠오르시나요?", "그 장면을 떠올려보면 어떤 생각이 드나요?"). 절대 "기분이 어땠나요?"처럼 직접 감정을 묻지 말 것
 - 답변에 사람/장소/일이 나왔음 → 그 구체적인 것 하나를 골라서 거기에 맞는 질문 생성
 - 답변 내용을 읽고, 가장 파고들 만한 부분 하나를 골라서 그에 맞는 질문을 새로 만든다
 
-[그만 물어볼 때 (needsFollowup: false)]
+[그만 물어볼 때 (needsFollowup: false) - 다음 메인 질문으로]
+- 사용자가 모른다/말하기 어렵다고 함: "모르겠어", "잘 모르겠는데", "말하기 어려운데", "기분은 잘 모르겠는데"
+- 사용자가 이미 감정을 말함 (피곤해, 졸려 등)—"더 구체적으로" 감정을 묻지 말 것
 - 감정·구체적 묘사가 충분한 풍부한 답변
 - 물어봐도 반복만 될 때
 
 [🚫 절대 쓰지 마]
 - 어떤 답변에나 쓸 수 있는 일반적인 질문
 - "조금 더 자세히 말씀해 주실 수 있을까요?", "자세히 이야기해 주세요"
+- 직접 감정 질문: "기분이 어땠나요?", "어떻게 느꼈나요?", "어떤 감정이었나요?", "구체적으로 어떤 기분이 드셨나요?", "어떤 기분이 드셨는지"
 - 사용자가 말한 내용을 무시한 질문
 - 같은 구조의 질문 반복—매번 답변에 맞춰 새로 만든다
 
@@ -141,8 +242,8 @@ ${contextText || "(아직 맥락 없음)"}
         return {
           needsFollowup: true,
           followupQuestion: isEn
-            ? "I'd like to understand that moment better. What was going through your mind at that time?"
-            : "그 순간이 궁금하네요. 그때 어떤 생각이나 느낌이 들었나요?",
+            ? "That moment sounds interesting. What comes to mind when you think back to it?"
+            : "그때를 떠올려보면 어떤 게 가장 먼저 생각나시나요? 궁금해요.",
         };
       }
       return { needsFollowup: false };
@@ -158,8 +259,8 @@ ${contextText || "(아직 맥락 없음)"}
       return {
         needsFollowup: true,
         followupQuestion: isEn
-          ? "I'd like to understand that moment better. What was going through your mind at that time?"
-          : "그 순간이 궁금하네요. 그때 어떤 생각이나 느낌이 들었나요?",
+          ? "That moment sounds interesting. What comes to mind when you think back to it?"
+          : "그때를 떠올려보면 어떤 게 가장 먼저 생각나시나요? 궁금해요.",
       };
     }
     return { needsFollowup: false };
@@ -169,8 +270,8 @@ ${contextText || "(아직 맥락 없음)"}
       return {
         needsFollowup: true,
         followupQuestion: isEn
-          ? "I'd like to understand that moment better. What was going through your mind at that time?"
-          : "그 순간이 궁금하네요. 그때 어떤 생각이나 느낌이 들었나요?",
+          ? "That moment sounds interesting. What comes to mind when you think back to it?"
+          : "그때를 떠올려보면 어떤 게 가장 먼저 생각나시나요? 궁금해요.",
       };
     }
     return { needsFollowup: false };
@@ -272,7 +373,11 @@ export async function reviewAnswersBeforeDiary(
 
   const isEn = language === "en";
   const prompt = isEn
-    ? `You are a 'strict editor' who reviews whether the user's answers are sufficient before writing a diary.
+    ? `You are a warm editor who reviews whether the user's answers are sufficient before writing a diary.
+
+[Tone & Manner - when asking a question]
+- Voice: "I'm curious...", "What was it like?" Offer choices when natural.
+- Show curiosity about concrete facts, not just empathy.
 
 [Review criteria]
 1. Flow: Is there a flow from morning to evening? Are main activities mentioned?
@@ -291,7 +396,11 @@ ${answersText}
 Output ONLY this JSON:
 {"needsMoreInfo": true/false, "question": "A natural follow-up question"}`
 
-    : `너는 일기를 작성하기 전에 사용자의 답변이 충분한지 마지막으로 검토하는 '까다로운 편집자'야.
+    : `너는 일기를 작성하기 전에 사용자의 답변이 충분한지 마지막으로 검토하는 '다정한 에디터'야.
+
+[Tone & Manner - 질문 시]
+- 말투: ~했군요, ~했는지 궁금해요 (청유형). 선택지 제시 가능.
+- 공감만 하지 말고 구체적인 사실을 물어봐.
 
 [검토 기준]
 1. 하루의 흐름: 아침부터 저녁까지의 흐름이 보이는가?
@@ -444,14 +553,14 @@ export async function generateNextQuestion(
   userProfile: Record<string, unknown> = {},
   questionCount: number = 0,
   language: Language = "ko",
-  skippedQuestion?: string
+  skippedQuestion?: string,
+  askedQuestions: string[] = []
 ): Promise<{ question: string; shouldEnd: boolean }> {
+  const pools = QUESTION_POOLS[language === "en" ? "en" : "ko"];
+
   if (!GEMINI_API_KEY) {
     return {
-      question:
-        language === "en"
-          ? "How did your day start today?"
-          : "오늘 하루는 어떤 일들로 시작되었나요?",
+      question: pools.theme1_morning[0],
       shouldEnd: false,
     };
   }
@@ -470,77 +579,104 @@ export async function generateNextQuestion(
 
   const isEn = language === "en";
   const prompt = isEn
-    ? `You are a warm, professional counselor or consultant who helps the user reflect on their day. You ask thoughtful questions in a respectful, supportive tone. Interview-like flow is fine, but vary your questions—don't ask the same type in a row.
+    ? `You are Deary's warm editor—kind, intellectually curious, with just the right distance. You help the user reflect on their day through CONCRETE, THEMED questions. Never vague ("How was your day?", "Anything special?").
 
-[TONE - Consultant/Counselor]
-- Warm, respectful, professional but approachable
-- Use phrases like "I'd like to hear more about...", "What stood out to you...", "How did that feel..."
-- Never generic or robotic
+[TONE & MANNER - Warm Editor]
+- Voice: Kind and curious, like a magazine editor. Use soft endings: "I'm curious...", "I'd love to hear..."
+- Don't over-empathize; show curiosity about concrete FACTS. Offer choices when natural: "Was it A? Or B?"
+- BAD: "That must have been hard ㅠㅠ" → GOOD: "That sounds tough. What part was the trickiest?"
+- No excessive emojis. End sentences gently.
 
-[CRITICAL: Today only!]
-- All questions must be about "today" only!
-- Use "today morning", "today afternoon", "today evening" naturally
-- Never "recently", "lately", "usually", "generally"
+[QUESTION POOL - PICK FROM HERE]
+Choose a question from this pool, or create a natural variation within the SAME theme. Do NOT invent generic questions.
 
-[Full context]
-All Q&A so far:
+Theme 1 (Morning): ${pools.theme1_morning.join(" | ")}
+Theme 2 (Highlight/Events): ${pools.theme2_highlight.join(" | ")}
+Theme 3 (Food/Taste): ${pools.theme3_food.join(" | ")}
+Theme 4 (Work/School): ${pools.theme4_work.join(" | ")}
+Theme 5 (Relationships): ${pools.theme5_relationships.join(" | ")}
+
+[RULES]
+- FIRST QUESTION (questionCount=0): Pick Theme 1 (Morning). Use theme1_morning[0], [1], [2], or [3]. NEVER [4] (how you felt) for the first question.
+- Pick a theme not yet covered (or least covered). Vary themes.
+- Use the pool question or a natural variation. Never "How was your day?", "Anything special?"
+- Today only! Use "today morning", "today" naturally.
+
+[ALREADY ASKED - DO NOT REPEAT]
+${askedQuestions.length > 0 ? askedQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n") : "(none yet)"}
+
+Your new question MUST be from a different theme or a different question in the pool. If similar to any above, pick another.
+
+[Context]
 ${answersText || "(First question)"}
 
-User profile:
-${profileText}
-
+User profile: ${profileText}
 ${questionCount} questions completed.
+${skippedQuestion ? `\n[SKIP] User skipped: "${skippedQuestion}" - pick a COMPLETELY different theme/question.\n` : ""}
 
-[Checklist]
-✅ Don't repeat info already in the conversation!
-✅ Ask about new time slots, activities, or emotions
-✅ Vary question types—never two similar in a row
-✅ Use the user profile! If they're a college student, ask about campus/studies. If they have hobbies or friends, reference those naturally. Personalized questions feel warmer.
-${skippedQuestion ? `\n[🚫 SKIP - Do NOT ask this or a similar question]\nThe user skipped this question. Generate a COMPLETELY DIFFERENT question:\n"${skippedQuestion}"\n` : ""}
-
-[End criteria]
-- 4+ questions and main activities + emotions covered → shouldEnd: true
-- 3 or fewer or info lacking → shouldEnd: false
-- User keeps giving short/meaningless answers → shouldEnd: true
+[End criteria] shouldEnd: true if 4+ questions done and main themes covered; else false.
 
 Output ONLY this JSON:
-{"question": "A counselor-style question about today", "shouldEnd": false}`
+{"question": "One question from the pool or a natural variation", "shouldEnd": false}`
 
-    : `너는 사용자의 "오늘 하루"를 함께 돌아보는 따뜻한 상담가/컨설턴트야. 존중하고 공감하는 말투로 질문한다. 인터뷰 느낌이 나도 괜찮지만, 같은 유형의 질문을 연속으로 하지 않는다.
+    : `너는 Deary의 다정한 에디터야. 친절하고 지적인 잡지 에디터처럼 행동해. 사용자의 하루를 구체적이고 테마 있는 질문으로 돌아본다.
 
-[🎯 말투 - 상담가/컨설턴트]
-- 따뜻하고 존중하는, 전문적이면서도 편한 말투
-- "~세요", "~해요" 체 사용
+[Tone & Manner - 다정한 에디터]
+- 말투: ~했군요, ~했는지 궁금해요, ~드셨어요? (청유형)
+- 호칭: '사용자님' 대신 생략. 과도한 이모지, 'ㅋㅋ' 금지.
+- 공감만 하지 말고, 호기심을 가지고 구체적인 사실을 물어봐
+- 선택지 제시: "참치김밥? 아니면 기본?" / "혼자 드셨어요, 아니면 동료들이랑?"
+- 예: "오늘 점심은 뭐 드셨어요? 맛있는 거 드셨으면 좋겠는데."
 
-[🚨 절대 규칙: 오늘 일기만!]
-- 모든 질문은 "오늘"에 대해서만!
-- "최근", "요즘", "평소", "일반적으로" 같은 단어 절대 사용 금지!
-- "오늘 아침", "오늘 점심", "오늘 저녁"처럼 오늘을 명시할 것!
+[질문 풀 - 여기서 골라 쓸 것]
+풀에서 질문을 고르거나 같은 테마 안에서 자연스럽게 변형. 풀 밖의 일반적 질문 금지.
 
-[🚨 중요! 전체 대화 맥락]
-아래는 지금까지 나온 모든 질문과 답변이야.
+테마1 (하루의 시작): ${pools.theme1_morning.join(" | ")}
+테마2 (강렬한 기억): ${pools.theme2_highlight.join(" | ")}
+테마3 (미각과 휴식): ${pools.theme3_food.join(" | ")}
+테마4 (사회생활/성취): ${pools.theme4_work.join(" | ")}
+테마5 (관계와 대화): ${pools.theme5_relationships.join(" | ")}
+
+[규칙]
+- 첫 질문(questionCount=0): 테마1 사용. theme1의 1~4번 중에서. 5번(첫 기분)은 첫 질문에 금지.
+- 아직 다루지 않은 테마를 골라라. "오늘 어땠어?", "특별한 일 없었어?" 금지.
+- 오늘만! "오늘 아침", "오늘"을 자연스럽게.
+
+[이미 한 질문 - 절대 반복 금지]
+${askedQuestions.length > 0 ? askedQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n") : "(아직 없음)"}
+
+새 질문은 위와 다른 테마이거나 풀의 다른 질문이어야 함. 비슷하면 다른 걸 골라라.
+
+[맥락]
 ${answersText || "(첫 질문)"}
 
-사용자 프로필:
-${profileText}
+사용자 프로필: ${profileText}
+현재 ${questionCount}개 질문 완료.
+${skippedQuestion ? `\n[스킵] 사용자가 스킵함: "${skippedQuestion}" - 완전히 다른 테마/질문을 골라라.\n` : ""}
 
-현재 ${questionCount}개 질문 완료
+[종료] 4개 이상 질문했고 주요 테마가 나왔으면 shouldEnd: true, 아니면 false.
 
-[질문 생성 전 필수 체크리스트]
-✅ 위 대화에서 이미 나온 정보를 다시 묻지 말 것!
-✅ 새로운 시간대/활동/감정을 물어볼 것
-✅ 이미 언급된 내용은 더 깊게 파고들기
-✅ 같은 유형의 질문을 연속으로 하지 말 것!
-✅ 프로필을 활용해 연관 질문! 대학생이면 캠퍼스/수업, 취미가 있으면 그걸 살린 질문, 친구가 있으면 그 친구와의 일 등. 개인화된 질문이 더 따뜻함.
-${skippedQuestion ? `\n[🚫 스킵된 질문 - 절대 비슷하거나 같은 질문 하지 말 것]\n사용자가 이 질문을 스킵했음. 완전히 다른 질문을 생성해:\n"${skippedQuestion}"\n` : ""}
+반드시 JSON만 출력:
+{"question": "풀에서 고른 질문 또는 자연스러운 변형", "shouldEnd": false}`;
 
-[종료 기준]
-- 4개 이상 질문했고, 오늘 하루의 주요 활동과 감정이 모두 나왔으면 → shouldEnd: true
-- 아직 3개 이하이거나 오늘의 정보가 부족하면 → shouldEnd: false
-- 답변이 계속 짧고 의미 없으면 → shouldEnd: true
-
-반드시 아래의 JSON만 출력해:
-{"question": "상담가 말투의 오늘에 대한 질문", "shouldEnd": false}`;
+  const fallbacksKo = [
+    pools.theme1_morning[0],
+    pools.theme3_food[0],
+    pools.theme2_highlight[0],
+    pools.theme5_relationships[0],
+    pools.theme4_work[0],
+  ];
+  const fallbacksEn = [
+    pools.theme1_morning[0],
+    pools.theme3_food[0],
+    pools.theme2_highlight[0],
+    pools.theme5_relationships[0],
+    pools.theme4_work[0],
+  ];
+  const pickFallback = (list: string[], asked: string[]) => {
+    const notAsked = list.filter((q) => !asked.some((a) => a === q || a.includes(q) || q.includes(a)));
+    return notAsked[0] ?? list[questionCount % list.length];
+  };
 
   try {
     const response = await fetch(
@@ -559,33 +695,27 @@ ${skippedQuestion ? `\n[🚫 스킵된 질문 - 절대 비슷하거나 같은 �
       }
     );
 
+    const fallbackQ = isEn ? pickFallback(fallbacksEn, askedQuestions) : pickFallback(fallbacksKo, askedQuestions);
+
     if (!response.ok) {
-      return {
-        question: isEn
-          ? "What was the most memorable moment of your day today?"
-          : "오늘 하루 중 가장 기억에 남는 순간은 언제였나요?",
-        shouldEnd: false,
-      };
+      return { question: fallbackQ, shouldEnd: false };
     }
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-
-    return {
-      question: isEn
-        ? "What was the most memorable moment of your day today?"
-        : "오늘 하루 중 가장 기억에 남는 순간은 언제였나요?",
-      shouldEnd: false,
-    };
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const q = parsed?.question?.trim();
+      if (q && !askedQuestions.some((a) => a === q || a.includes(q) || q.includes(a))) {
+        return parsed;
+      }
+      return { question: fallbackQ, shouldEnd: parsed?.shouldEnd ?? false };
+    }
+    return { question: fallbackQ, shouldEnd: false };
   } catch (error) {
     console.error("💥 [AI] Question generation error:", error);
-    return {
-      question: isEn
-        ? "What was the most memorable moment of your day today?"
-        : "오늘 하루 중 가장 기억에 남는 순간은 언제였나요?",
-      shouldEnd: false,
-    };
+    const fallbackQ = isEn ? pickFallback(fallbacksEn, askedQuestions) : pickFallback(fallbacksKo, askedQuestions);
+    return { question: fallbackQ, shouldEnd: false };
   }
 }

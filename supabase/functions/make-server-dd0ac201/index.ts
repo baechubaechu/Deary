@@ -164,7 +164,7 @@ app.post(`${P}/review-answers`, async (c) => {
 
 app.post(`${P}/next-question`, async (c) => {
   try {
-    const { answers, userId, questionCount, language, skippedQuestion } = await c.req.json();
+    const { answers, userId, questionCount, language, skippedQuestion, askedQuestions } = await c.req.json();
     let userProfile: Record<string, unknown> = {};
     if (userId) {
       const profileData = await kv.get(`user_profile:${userId}`);
@@ -176,7 +176,8 @@ app.post(`${P}/next-question`, async (c) => {
       userProfile,
       questionCount || 0,
       lang,
-      skippedQuestion || undefined
+      skippedQuestion || undefined,
+      Array.isArray(askedQuestions) ? askedQuestions : []
     );
     return c.json(result);
   } catch (error) {
@@ -206,18 +207,33 @@ app.post(`${P}/update-profile`, async (c) => {
   }
 });
 
+// Neural2 voices: female 1 + male 1 per language
+const TTS_VOICES: Record<string, string[]> = {
+  ko: ["ko-KR-Neural2-A", "ko-KR-Neural2-C"], // F, M
+  en: ["en-US-Neural2-C", "en-US-Neural2-A"], // F, M
+};
+const TTS_DEFAULT: Record<string, string> = {
+  ko: "ko-KR-Neural2-A",
+  en: "en-US-Neural2-C",
+};
+
 app.post(`${P}/tts`, async (c) => {
   const apiKey = Deno.env.get("GOOGLE_TTS_API_KEY");
   if (!apiKey) {
     return c.json({ error: "GOOGLE_TTS_API_KEY not configured" }, 501);
   }
   try {
-    const { text, language } = await c.req.json();
+    const { text, language, voice: reqVoice } = await c.req.json();
     if (!text || typeof text !== "string") {
       return c.json({ error: "Missing text" }, 400);
     }
-    const langCode = language === "en" ? "en-US" : "ko-KR";
-    const voiceName = language === "en" ? "en-US-Wavenet-D" : "ko-KR-Wavenet-A";
+    const lang = language === "en" ? "en" : "ko";
+    const langCode = lang === "en" ? "en-US" : "ko-KR";
+    const allowed = TTS_VOICES[lang];
+    const voiceName =
+      typeof reqVoice === "string" && allowed.includes(reqVoice)
+        ? reqVoice
+        : TTS_DEFAULT[lang];
     const res = await fetch(
       `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
       {
